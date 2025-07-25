@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { VoiceButton } from "@/components/VoiceButton";
 import { ArrowLeft, User, Mail, Lock, Calendar, Heart, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import type { UserRole } from "./RoleSelection";
 
 const Auth = () => {
@@ -34,7 +35,7 @@ const Auth = () => {
     }
   }, [role, navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Simple validation
@@ -47,33 +48,88 @@ const Auth = () => {
       return;
     }
 
-    // Store user data in localStorage (in a real app, use proper authentication)
-    const userData = {
-      ...formData,
-      role,
-      id: Date.now().toString()
-    };
-    
-    localStorage.setItem("currentUser", JSON.stringify(userData));
-    
-    toast({
-      title: "Welcome!",
-      description: `Successfully ${isLogin ? "logged in" : "signed up"} as ${role}`,
-    });
+    try {
+      if (isLogin) {
+        // Sign in existing user
+        const { error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
 
-    // Navigate based on role
-    switch (role) {
-      case "student":
-        navigate("/dashboard/student");
-        break;
-      case "parent":
-        navigate("/dashboard/parent");
-        break;
-      case "teacher":
-        navigate("/dashboard/teacher");
-        break;
-      default:
-        navigate("/");
+        if (error) {
+          toast({
+            title: "Login failed",
+            description: error.message,
+            variant: "destructive"
+          });
+          return;
+        }
+      } else {
+        // Sign up new user with profile data
+        const { error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/`,
+            data: {
+              role,
+              name: formData.name,
+              age: formData.age ? parseInt(formData.age) : null,
+              disability: formData.disability,
+              language: formData.language,
+              child_name: formData.childName,
+              school: formData.school
+            }
+          }
+        });
+
+        if (error) {
+          toast({
+            title: "Sign up failed",
+            description: error.message,
+            variant: "destructive"
+          });
+          return;
+        }
+
+        // Update profile with additional fields after signup
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('profiles').update({
+            age: formData.age ? parseInt(formData.age) : null,
+            disability: formData.disability,
+            language: formData.language,
+            child_name: formData.childName,
+            school: formData.school
+          }).eq('user_id', user.id);
+        }
+      }
+
+      toast({
+        title: "Welcome!",
+        description: `Successfully ${isLogin ? "logged in" : "signed up"} as ${role}`,
+      });
+
+      // Navigate based on role
+      switch (role) {
+        case "student":
+          navigate("/dashboard/student");
+          break;
+        case "parent":
+          navigate("/dashboard/parent");
+          break;
+        case "teacher":
+          navigate("/dashboard/teacher");
+          break;
+        default:
+          navigate("/");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Authentication failed",
+        description: error.message || "An unexpected error occurred",
+        variant: "destructive"
+      });
     }
   };
 
